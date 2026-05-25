@@ -1,0 +1,111 @@
+name: Security Scan
+
+on:
+  push:
+  pull_request:
+    branches: [main, master, develop, dev]
+  schedule:
+    - cron: '0 2 * * 1'  # every Monday at 02:00 UTC
+  workflow_dispatch:
+
+jobs:
+
+  bandit:
+    name: Code Security (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install bandit[toml]
+      - run: |
+          bandit -r . \
+            --exclude "./.venv,./tests,./node_modules" \
+            --format json --output bandit-report.json \
+            --severity-level medium || true
+          bandit -r . \
+            --exclude "./.venv,./tests,./node_modules" \
+            --severity-level medium || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bandit-report
+          path: bandit-report.json
+
+  semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep (CLI)
+        run: |
+          pip install semgrep
+          semgrep --config=auto . \
+            --exclude=".venv" --exclude="tests" --exclude="node_modules" \
+            --json --output=semgrep-report.json || true
+          semgrep --config=auto . \
+            --exclude=".venv" --exclude="tests" --exclude="node_modules" || true
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+
+  gitleaks:
+    name: Secrets Detection (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Gitleaks
+        run: |
+          curl -sSL https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks_$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | grep tag_name | cut -d'"' -f4 | tr -d v)_linux_x64.tar.gz | tar -xz
+          sudo mv gitleaks /usr/local/bin/
+      - name: Run Gitleaks
+        run: gitleaks detect --source . --log-opts="--all" --redact || true
+      - name: Export Gitleaks report
+        run: gitleaks detect --source . --log-opts="--all" --redact --report-format json --report-path gitleaks-report.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+
+  pip-audit:
+    name: Dependency CVE (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          pip install pip-audit
+          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+          pip-audit --format json --output pip-audit-report.json || true
+          pip-audit || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit-report.json
+
+  summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [bandit, semgrep, gitleaks, pip-audit]
+    if: always()
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports/
+      - run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Scanner | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Bandit | ${{ needs.bandit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Semgrep | ${{ needs.semgrep.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gitleaks | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| pip-audit | ${{ needs.pip-audit.result }} |" >> $GITHUB_STEP_SUMMARY
