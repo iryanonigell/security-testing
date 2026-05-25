@@ -23,10 +23,10 @@ jobs:
           bandit -r . \
             --exclude "./.venv,./tests,./node_modules" \
             --format json --output bandit-report.json \
-            --severity-level medium || true
+            --severity-level low || true
           bandit -r . \
             --exclude "./.venv,./tests,./node_modules" \
-            --severity-level medium || true
+            --severity-level low || true
       - uses: actions/upload-artifact@v4
         with:
           name: bandit-report
