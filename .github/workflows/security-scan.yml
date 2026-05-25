@@ -276,8 +276,15 @@ jobs:
                   f"{badge(len(sg_low), 'low')} Low/Info**\n"
               )
 
+              SEV_NORM = {
+                  "ERROR": "HIGH", "CRITICAL": "HIGH", "HIGH": "HIGH",
+                  "WARNING": "MEDIUM", "MEDIUM": "MEDIUM",
+                  "INFO": "LOW", "NOTE": "LOW", "LOW": "LOW",
+              }
+
               def sg_row(r):
-                  sev   = sg_sev(r)
+                  raw   = sg_sev(r)
+                  sev   = SEV_NORM.get(raw, raw)
                   file  = r.get("path", "").lstrip("./")
                   start = r.get("start", {})
                   end   = r.get("end", {})
