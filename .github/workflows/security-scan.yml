@@ -128,7 +128,7 @@ jobs:
               write("\n</details>\n")
 
           def esc(s):
-              return str(s).replace("|", "\\|").replace("\n", " ").strip()
+              return str(s or "").replace("|", "\\|").replace("\n", " ").strip()
 
           # ── Load all reports up-front so counts are available for the header table ──
           bandit_results, semgrep_results, leaks, pip_vulns = [], [], [], []
@@ -176,8 +176,8 @@ jobs:
                           "package": dep.get("name", ""),
                           "version": dep.get("version", ""),
                           "id":      v.get("id", ""),
-                          "aliases": ", ".join(v.get("aliases", [])),
-                          "fix":     ", ".join(v.get("fix_versions", [])) or "no fix",
+                          "aliases": ", ".join(v.get("aliases") or []),
+                          "fix":     ", ".join(v.get("fix_versions") or []) or "no fix",
                           "desc":    desc[:160],
                           "tier":    tier,
                       })
@@ -324,7 +324,7 @@ jobs:
                   author = esc(leak.get("Author", ""))
                   email  = esc(leak.get("Email", ""))
                   date   = leak.get("Date", "")[:10]
-                  tags   = ", ".join(leak.get("Tags", []))
+                  tags   = ", ".join(leak.get("Tags") or [])
                   msg    = esc(leak.get("Message", ""))[:60]
                   return f"| `{rule}` | {desc} | `{file}:{line}` | `{commit}` | {author} | {email} | {date} | {tags} | {msg} |"
 
