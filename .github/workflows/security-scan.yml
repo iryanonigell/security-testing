@@ -178,7 +178,7 @@ jobs:
                           "id":      v.get("id", ""),
                           "aliases": ", ".join(v.get("aliases") or []),
                           "fix":     ", ".join(v.get("fix_versions") or []) or "no fix",
-                          "desc":    desc[:160],
+                          "desc":    desc,
                           "tier":    tier,
                       })
           except FileNotFoundError:
