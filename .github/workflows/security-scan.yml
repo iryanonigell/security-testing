@@ -251,7 +251,7 @@ jobs:
                   file  = r.get("filename", "").lstrip("./")
                   line  = r.get("line_number", "")
                   conf  = r.get("issue_confidence", "")
-                  cwe   = r.get("issue_cwe", {}).get("id", "")
+                  cwe   = (r.get("issue_cwe") or {}).get("id", "")
                   cwe_s = f"[CWE-{cwe}](https://cwe.mitre.org/data/definitions/{cwe}.html)" if cwe else ""
                   msg   = esc(r.get("issue_text", ""))[:120]
                   code  = esc(r.get("code", "")).replace("`", "'")[:80]
@@ -286,14 +286,14 @@ jobs:
                   raw   = sg_sev(r)
                   sev   = SEV_NORM.get(raw, raw)
                   file  = r.get("path", "").lstrip("./")
-                  start = r.get("start", {})
-                  end   = r.get("end", {})
+                  start = r.get("start") or {}
+                  end   = r.get("end") or {}
                   loc   = f"{file}:{start.get('line','')}"
                   if end.get("line") and end["line"] != start.get("line"):
                       loc += f"-{end['line']}"
                   full_rule = r.get("check_id", "")
                   short     = full_rule.split(".")[-1][:40]
-                  meta  = r.get("extra", {}).get("metadata", {})
+                  meta  = (r.get("extra") or {}).get("metadata") or {}
                   cwe   = meta.get("cwe", meta.get("cwe2022-top25", ""))
                   if isinstance(cwe, list): cwe = cwe[0] if cwe else ""
                   owasp = meta.get("owasp", "")
