@@ -293,7 +293,6 @@ jobs:
                       loc += f"-{end['line']}"
                   full_rule = r.get("check_id", "")
                   short     = full_rule.split(".")[-1][:40]
-                  rule_disp = f"`{short}` <br><sub>{full_rule}</sub>"
                   meta  = r.get("extra", {}).get("metadata", {})
                   cwe   = meta.get("cwe", meta.get("cwe2022-top25", ""))
                   if isinstance(cwe, list): cwe = cwe[0] if cwe else ""
@@ -301,9 +300,9 @@ jobs:
                   if isinstance(owasp, list): owasp = owasp[0] if owasp else ""
                   msg   = esc(r.get("extra", {}).get("message", ""))[:120]
                   lines = esc(r.get("extra", {}).get("lines", "")).replace("`","'")[:80]
-                  return f"| {sev} | {rule_disp} | `{loc}` | {esc(cwe)[:30]} | {esc(owasp)[:30]} | {msg} | `{lines}` |"
+                  return f"| {sev} | `{short}` | `{full_rule}` | `{loc}` | {esc(cwe)[:30]} | {esc(owasp)[:30]} | {msg} | `{lines}` |"
 
-              cols = ["Sev", "Rule", "Location", "CWE", "OWASP", "Message", "Code Snippet"]
+              cols = ["Sev", "Rule (short)", "Rule (full)", "Location", "CWE", "OWASP", "Message", "Code Snippet"]
               section("🔴 High / Critical", sg_high,   cols, sg_row)
               section("🟡 Medium",          sg_medium, cols, sg_row)
               section("🔵 Low / Info",      sg_low,    cols, sg_row)
