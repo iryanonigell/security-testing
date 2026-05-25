@@ -105,22 +105,32 @@ jobs:
       - name: Generate findings summary
         run: |
           python3 << 'EOF'
-          import json, os, sys
+          import json, os
 
           SUMMARY = os.environ["GITHUB_STEP_SUMMARY"]
 
-          def badge(n, high=True):
+          def badge(n, tier="high"):
               if n == 0:
                   return "✅ 0"
-              return f"🔴 {n}" if high else f"🟡 {n}"
+              return {"high": f"🔴 {n}", "medium": f"🟡 {n}", "low": f"🔵 {n}"}.get(tier, f"⚪ {n}")
 
           def write(line=""):
               with open(SUMMARY, "a") as f:
                   f.write(line + "\n")
 
+          def section(label, items, columns, row_fn):
+              if not items:
+                  return
+              write(f"<details><summary>{label} ({len(items)} findings)</summary>\n")
+              write("| " + " | ".join(columns) + " |")
+              write("|" + "|".join("---" for _ in columns) + "|")
+              for item in items:
+                  write(row_fn(item))
+              write("\n</details>\n")
+
           write("## 🔍 Security Scan Summary\n")
 
-          # ── Job status table ─────────────────────────────────────────────
+          # ── Job status ────────────────────────────────────────────────────
           write("### Scanner Status")
           write("| Scanner | Job Status |")
           write("|---------|-----------|")
@@ -132,36 +142,40 @@ jobs:
           ]:
               icon = "✅" if result == "success" else "❌"
               write(f"| {scanner} | {icon} {result} |")
-
           write("")
 
           # ── Bandit ────────────────────────────────────────────────────────
           write("---")
           write("### 🐍 Bandit — Python Code Security")
-          bandit_path = "reports/bandit-report/bandit-report.json"
           try:
-              with open(bandit_path) as f:
+              with open("reports/bandit-report/bandit-report.json") as f:
                   data = json.load(f)
               results = data.get("results", [])
 
               high   = [r for r in results if r.get("issue_severity") in ("HIGH", "CRITICAL")]
               medium = [r for r in results if r.get("issue_severity") == "MEDIUM"]
+              low    = [r for r in results if r.get("issue_severity") == "LOW"]
 
-              write(f"**{badge(len(high))} High/Critical &nbsp;&nbsp; {badge(len(medium), False)} Medium**\n")
+              write(
+                  f"**{badge(len(high))} High/Critical &nbsp;&nbsp; "
+                  f"{badge(len(medium), 'medium')} Medium &nbsp;&nbsp; "
+                  f"{badge(len(low), 'low')} Low**\n"
+              )
 
-              for label, items in [("🔴 High / Critical", high), ("🟡 Medium", medium)]:
-                  if not items:
-                      continue
-                  write(f"<details><summary>{label} ({len(items)} findings)</summary>\n")
-                  write("| Severity | File | Line | Issue |")
-                  write("|----------|------|------|-------|")
-                  for r in items:
-                      sev  = r.get("issue_severity", "")
-                      file = r.get("filename", "").replace("./", "")
-                      line = r.get("line_number", "")
-                      msg  = r.get("issue_text", "").replace("|", "\\|")[:120]
-                      write(f"| {sev} | `{file}` | {line} | {msg} |")
-                  write("\n</details>\n")
+              def bandit_row(r):
+                  sev  = r.get("issue_severity", "")
+                  file = r.get("filename", "").lstrip("./")
+                  line = r.get("line_number", "")
+                  conf = r.get("issue_confidence", "")
+                  msg  = r.get("issue_text", "").replace("|", "\\|")[:120]
+                  cwe  = r.get("issue_cwe", {}).get("id", "")
+                  cwe_s = f"CWE-{cwe}" if cwe else ""
+                  return f"| {sev} | `{file}` | {line} | {conf} | {cwe_s} | {msg} |"
+
+              cols = ["Severity", "File", "Line", "Confidence", "CWE", "Issue"]
+              section("🔴 High / Critical", high,   cols, bandit_row)
+              section("🟡 Medium",          medium, cols, bandit_row)
+              section("🔵 Low",             low,    cols, bandit_row)
           except FileNotFoundError:
               write("_Report not found._")
           except Exception as e:
@@ -170,9 +184,8 @@ jobs:
           # ── Semgrep ───────────────────────────────────────────────────────
           write("---")
           write("### 🔎 Semgrep — SAST")
-          semgrep_path = "reports/semgrep-report/semgrep-report.json"
           try:
-              with open(semgrep_path) as f:
+              with open("reports/semgrep-report/semgrep-report.json") as f:
                   data = json.load(f)
               results = data.get("results", [])
 
@@ -181,23 +194,26 @@ jobs:
 
               high   = [r for r in results if sg_sev(r) in ("ERROR", "HIGH", "CRITICAL")]
               medium = [r for r in results if sg_sev(r) in ("WARNING", "MEDIUM")]
+              low    = [r for r in results if sg_sev(r) in ("INFO", "NOTE", "LOW")]
 
-              write(f"**{badge(len(high))} High/Critical &nbsp;&nbsp; {badge(len(medium), False)} Medium**\n")
+              write(
+                  f"**{badge(len(high))} High/Critical &nbsp;&nbsp; "
+                  f"{badge(len(medium), 'medium')} Medium &nbsp;&nbsp; "
+                  f"{badge(len(low), 'low')} Low/Info**\n"
+              )
 
-              for label, items in [("🔴 High / Critical", high), ("🟡 Medium", medium)]:
-                  if not items:
-                      continue
-                  write(f"<details><summary>{label} ({len(items)} findings)</summary>\n")
-                  write("| Severity | File | Line | Rule | Message |")
-                  write("|----------|------|------|------|---------|")
-                  for r in items:
-                      sev   = sg_sev(r)
-                      file  = r.get("path", "").replace("./", "")
-                      line  = r.get("start", {}).get("line", "")
-                      rule  = r.get("check_id", "").split(".")[-1][:40]
-                      msg   = r.get("extra", {}).get("message", "").replace("|", "\\|")[:100]
-                      write(f"| {sev} | `{file}` | {line} | `{rule}` | {msg} |")
-                  write("\n</details>\n")
+              def sg_row(r):
+                  sev  = sg_sev(r)
+                  file = r.get("path", "").lstrip("./")
+                  line = r.get("start", {}).get("line", "")
+                  rule = r.get("check_id", "").split(".")[-1][:40]
+                  msg  = r.get("extra", {}).get("message", "").replace("|", "\\|")[:100]
+                  return f"| {sev} | `{file}` | {line} | `{rule}` | {msg} |"
+
+              cols = ["Severity", "File", "Line", "Rule", "Message"]
+              section("🔴 High / Critical", high,   cols, sg_row)
+              section("🟡 Medium",          medium, cols, sg_row)
+              section("🔵 Low / Info",      low,    cols, sg_row)
           except FileNotFoundError:
               write("_Report not found._")
           except Exception as e:
@@ -206,26 +222,27 @@ jobs:
           # ── Gitleaks ──────────────────────────────────────────────────────
           write("---")
           write("### 🔑 Gitleaks — Secrets Detection")
-          gitleaks_path = "reports/gitleaks-report/gitleaks-report.json"
           try:
-              with open(gitleaks_path) as f:
+              with open("reports/gitleaks-report/gitleaks-report.json") as f:
                   content = f.read().strip()
               leaks = json.loads(content) if content and content != "null" else []
               leaks = leaks if isinstance(leaks, list) else []
 
-              write(f"**{badge(len(leaks))} Secrets found**\n")
+              write(f"**{badge(len(leaks))} Secrets found** _(all secrets are HIGH by default)_\n")
 
-              if leaks:
-                  write("<details><summary>🔴 Secrets ({} findings)</summary>\n".format(len(leaks)))
-                  write("| Rule | File | Line | Commit |")
-                  write("|------|------|------|--------|")
-                  for leak in leaks:
-                      rule   = leak.get("RuleID", leak.get("Description", ""))[:40]
-                      file   = leak.get("File", "")
-                      line   = leak.get("StartLine", "")
-                      commit = leak.get("Commit", "")[:8]
-                      write(f"| `{rule}` | `{file}` | {line} | `{commit}` |")
-                  write("\n</details>\n")
+              def leak_row(leak):
+                  rule   = leak.get("RuleID", leak.get("Description", ""))[:40]
+                  file   = leak.get("File", "")
+                  line   = leak.get("StartLine", "")
+                  commit = leak.get("Commit", "")[:8]
+                  author = leak.get("Author", "")
+                  return f"| `{rule}` | `{file}` | {line} | `{commit}` | {author} |"
+
+              section(
+                  f"🔴 Secrets ({len(leaks)} found)", leaks,
+                  ["Rule", "File", "Line", "Commit", "Author"],
+                  leak_row,
+              )
           except FileNotFoundError:
               write("_Report not found._")
           except Exception as e:
@@ -234,37 +251,52 @@ jobs:
           # ── pip-audit ─────────────────────────────────────────────────────
           write("---")
           write("### 📦 pip-audit — Dependency CVEs")
-          pip_path = "reports/pip-audit-report/pip-audit-report.json"
           try:
-              with open(pip_path) as f:
+              with open("reports/pip-audit-report/pip-audit-report.json") as f:
                   data = json.load(f)
 
               vulns = []
               for dep in data.get("dependencies", []):
                   for v in dep.get("vulns", []):
+                      aliases = v.get("aliases", [])
+                      # Pull CVSS severity from fix_versions or description heuristic
+                      desc = v.get("description", "").upper()
+                      if any(w in desc for w in ("CRITICAL",)):
+                          tier = "high"
+                      elif any(w in desc for w in ("HIGH",)):
+                          tier = "high"
+                      elif any(w in desc for w in ("MEDIUM", "MODERATE")):
+                          tier = "medium"
+                      elif any(w in desc for w in ("LOW",)):
+                          tier = "low"
+                      else:
+                          tier = "medium"  # default unknown to medium
                       vulns.append({
                           "package": dep.get("name", ""),
                           "version": dep.get("version", ""),
                           "id":      v.get("id", ""),
+                          "aliases": ", ".join(aliases),
                           "fix":     ", ".join(v.get("fix_versions", [])) or "no fix",
-                          "severity": (v.get("aliases", [""])[0] if v.get("aliases") else v.get("id", ""))
+                          "tier":    tier,
                       })
 
-              # Heuristic: GHSA/CVE with HIGH/CRITICAL in id or no alias = treat as high
-              high   = [v for v in vulns if "CRITICAL" in v["id"].upper() or "HIGH" in v["id"].upper()]
-              medium = [v for v in vulns if v not in high]
+              high   = [v for v in vulns if v["tier"] == "high"]
+              medium = [v for v in vulns if v["tier"] == "medium"]
+              low    = [v for v in vulns if v["tier"] == "low"]
 
-              write(f"**{badge(len(high))} High/Critical &nbsp;&nbsp; {badge(len(medium), False)} Medium/Other**\n")
+              write(
+                  f"**{badge(len(high))} High/Critical &nbsp;&nbsp; "
+                  f"{badge(len(medium), 'medium')} Medium &nbsp;&nbsp; "
+                  f"{badge(len(low), 'low')} Low**\n"
+              )
 
-              for label, items in [("🔴 High / Critical", high), ("🟡 Medium / Other", medium)]:
-                  if not items:
-                      continue
-                  write(f"<details><summary>{label} ({len(items)} findings)</summary>\n")
-                  write("| Package | Version | CVE/ID | Fix |")
-                  write("|---------|---------|--------|-----|")
-                  for v in items:
-                      write(f"| `{v['package']}` | {v['version']} | `{v['id']}` | {v['fix']} |")
-                  write("\n</details>\n")
+              def pip_row(v):
+                  return f"| `{v['package']}` | {v['version']} | `{v['id']}` | {v['aliases']} | {v['fix']} |"
+
+              cols = ["Package", "Version", "ID", "Aliases (CVE)", "Fix Version"]
+              section("🔴 High / Critical", high,   cols, pip_row)
+              section("🟡 Medium",          medium, cols, pip_row)
+              section("🔵 Low",             low,    cols, pip_row)
 
               if not vulns:
                   write("✅ No vulnerable dependencies found.")
@@ -274,5 +306,5 @@ jobs:
               write(f"_Error parsing report: {e}_")
 
           write("\n---")
-          write("_Reports available as workflow artifacts._")
+          write("_Full reports available as workflow artifacts._")
           EOF
