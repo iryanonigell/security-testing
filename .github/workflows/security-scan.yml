@@ -329,7 +329,7 @@ jobs:
                   return f"| `{rule}` | {desc} | `{file}:{line}` | `{commit}` | {author} | {email} | {date} | {tags} | {msg} |"
 
               section(
-                  f"🔴 Secrets ({len(leaks)} found)", leaks,
+                  "🔴 Secrets", leaks,
                   ["Rule ID", "Description", "Location", "Commit", "Author", "Email", "Date", "Tags", "Commit Message"],
                   leak_row,
               )
