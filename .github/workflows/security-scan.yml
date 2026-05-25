@@ -128,183 +128,233 @@ jobs:
                   write(row_fn(item))
               write("\n</details>\n")
 
-          write("## 🔍 Security Scan Summary\n")
+          def esc(s):
+              return str(s).replace("|", "\\|").replace("\n", " ").strip()
 
-          # ── Job status ────────────────────────────────────────────────────
-          write("### Scanner Status")
-          write("| Scanner | Job Status |")
-          write("|---------|-----------|")
-          for scanner, result in [
-              ("Bandit",    "${{ needs.bandit.result }}"),
-              ("Semgrep",   "${{ needs.semgrep.result }}"),
-              ("Gitleaks",  "${{ needs.gitleaks.result }}"),
-              ("pip-audit", "${{ needs.pip-audit.result }}"),
-          ]:
-              icon = "✅" if result == "success" else "❌"
-              write(f"| {scanner} | {icon} {result} |")
+          # ── Load all reports up-front so counts are available for the header table ──
+          bandit_results, semgrep_results, leaks, pip_vulns = [], [], [], []
+          bandit_err = semgrep_err = gitleaks_err = pip_err = ""
+
+          try:
+              with open("reports/bandit-report/bandit-report.json") as f:
+                  bandit_results = json.load(f).get("results", [])
+          except FileNotFoundError:
+              bandit_err = "report not found"
+          except Exception as e:
+              bandit_err = str(e)
+
+          try:
+              with open("reports/semgrep-report/semgrep-report.json") as f:
+                  semgrep_results = json.load(f).get("results", [])
+          except FileNotFoundError:
+              semgrep_err = "report not found"
+          except Exception as e:
+              semgrep_err = str(e)
+
+          try:
+              with open("reports/gitleaks-report/gitleaks-report.json") as f:
+                  content = f.read().strip()
+              raw = json.loads(content) if content and content != "null" else []
+              leaks = raw if isinstance(raw, list) else []
+          except FileNotFoundError:
+              gitleaks_err = "report not found"
+          except Exception as e:
+              gitleaks_err = str(e)
+
+          try:
+              with open("reports/pip-audit-report/pip-audit-report.json") as f:
+                  pip_data = json.load(f)
+              for dep in pip_data.get("dependencies", []):
+                  for v in dep.get("vulns", []):
+                      desc = v.get("description", "")
+                      du = desc.upper()
+                      if "CRITICAL" in du:           tier = "high"
+                      elif "HIGH" in du:             tier = "high"
+                      elif "MODERATE" in du or "MEDIUM" in du: tier = "medium"
+                      elif "LOW" in du:              tier = "low"
+                      else:                          tier = "medium"
+                      pip_vulns.append({
+                          "package": dep.get("name", ""),
+                          "version": dep.get("version", ""),
+                          "id":      v.get("id", ""),
+                          "aliases": ", ".join(v.get("aliases", [])),
+                          "fix":     ", ".join(v.get("fix_versions", [])) or "no fix",
+                          "desc":    desc[:160],
+                          "tier":    tier,
+                      })
+          except FileNotFoundError:
+              pip_err = "report not found"
+          except Exception as e:
+              pip_err = str(e)
+
+          # ── Severity buckets ──────────────────────────────────────────────
+          def sg_sev(r):
+              return r.get("extra", {}).get("severity", "").upper()
+
+          b_high   = [r for r in bandit_results if r.get("issue_severity") in ("HIGH", "CRITICAL")]
+          b_medium = [r for r in bandit_results if r.get("issue_severity") == "MEDIUM"]
+          b_low    = [r for r in bandit_results if r.get("issue_severity") == "LOW"]
+
+          sg_high   = [r for r in semgrep_results if sg_sev(r) in ("ERROR", "HIGH", "CRITICAL")]
+          sg_medium = [r for r in semgrep_results if sg_sev(r) in ("WARNING", "MEDIUM")]
+          sg_low    = [r for r in semgrep_results if sg_sev(r) in ("INFO", "NOTE", "LOW")]
+
+          p_high   = [v for v in pip_vulns if v["tier"] == "high"]
+          p_medium = [v for v in pip_vulns if v["tier"] == "medium"]
+          p_low    = [v for v in pip_vulns if v["tier"] == "low"]
+
+          # ── Header ────────────────────────────────────────────────────────
+          write("## 🔍 Security Scan Summary\n")
+          write("### Overview")
+          write("| Scanner | Job | 🔴 High/Crit | 🟡 Medium | 🔵 Low | Total |")
+          write("|---------|-----|-------------|----------|-------|-------|")
+
+          def status_icon(r):
+              return "✅" if r == "success" else "❌"
+
+          bandit_total = len(bandit_results)
+          write(
+              f"| 🐍 Bandit | {status_icon('${{ needs.bandit.result }}')} ${{ needs.bandit.result }} "
+              f"| {len(b_high)} | {len(b_medium)} | {len(b_low)} | **{bandit_total}** |"
+          )
+          sg_total = len(semgrep_results)
+          write(
+              f"| 🔎 Semgrep | {status_icon('${{ needs.semgrep.result }}')} ${{ needs.semgrep.result }} "
+              f"| {len(sg_high)} | {len(sg_medium)} | {len(sg_low)} | **{sg_total}** |"
+          )
+          write(
+              f"| 🔑 Gitleaks | {status_icon('${{ needs.gitleaks.result }}')} ${{ needs.gitleaks.result }} "
+              f"| {len(leaks)} | — | — | **{len(leaks)}** |"
+          )
+          pip_total = len(pip_vulns)
+          write(
+              f"| 📦 pip-audit | {status_icon('${{ needs.pip-audit.result }}')} ${{ needs.pip-audit.result }} "
+              f"| {len(p_high)} | {len(p_medium)} | {len(p_low)} | **{pip_total}** |"
+          )
           write("")
 
           # ── Bandit ────────────────────────────────────────────────────────
           write("---")
           write("### 🐍 Bandit — Python Code Security")
-          try:
-              with open("reports/bandit-report/bandit-report.json") as f:
-                  data = json.load(f)
-              results = data.get("results", [])
-
-              high   = [r for r in results if r.get("issue_severity") in ("HIGH", "CRITICAL")]
-              medium = [r for r in results if r.get("issue_severity") == "MEDIUM"]
-              low    = [r for r in results if r.get("issue_severity") == "LOW"]
-
+          if bandit_err:
+              write(f"_Error: {bandit_err}_")
+          else:
               write(
-                  f"**{badge(len(high))} High/Critical &nbsp;&nbsp; "
-                  f"{badge(len(medium), 'medium')} Medium &nbsp;&nbsp; "
-                  f"{badge(len(low), 'low')} Low**\n"
+                  f"**{badge(len(b_high))} High/Critical &nbsp;&nbsp; "
+                  f"{badge(len(b_medium), 'medium')} Medium &nbsp;&nbsp; "
+                  f"{badge(len(b_low), 'low')} Low**\n"
               )
 
               def bandit_row(r):
-                  sev  = r.get("issue_severity", "")
-                  file = r.get("filename", "").lstrip("./")
-                  line = r.get("line_number", "")
-                  conf = r.get("issue_confidence", "")
-                  msg  = r.get("issue_text", "").replace("|", "\\|")[:120]
-                  cwe  = r.get("issue_cwe", {}).get("id", "")
-                  cwe_s = f"CWE-{cwe}" if cwe else ""
-                  return f"| {sev} | `{file}` | {line} | {conf} | {cwe_s} | {msg} |"
+                  sev   = r.get("issue_severity", "")
+                  tid   = r.get("test_id", "")
+                  tname = r.get("test_name", "")
+                  file  = r.get("filename", "").lstrip("./")
+                  line  = r.get("line_number", "")
+                  conf  = r.get("issue_confidence", "")
+                  cwe   = r.get("issue_cwe", {}).get("id", "")
+                  cwe_s = f"[CWE-{cwe}](https://cwe.mitre.org/data/definitions/{cwe}.html)" if cwe else ""
+                  msg   = esc(r.get("issue_text", ""))[:120]
+                  code  = esc(r.get("code", "")).replace("`", "'")[:80]
+                  url   = r.get("more_info", "")
+                  rule  = f"[{tid}]({url})" if url else tid
+                  return f"| {sev} | {rule} `{tname}` | `{file}:{line}` | {conf} | {cwe_s} | {msg} | `{code}` |"
 
-              cols = ["Severity", "File", "Line", "Confidence", "CWE", "Issue"]
-              section("🔴 High / Critical", high,   cols, bandit_row)
-              section("🟡 Medium",          medium, cols, bandit_row)
-              section("🔵 Low",             low,    cols, bandit_row)
-          except FileNotFoundError:
-              write("_Report not found._")
-          except Exception as e:
-              write(f"_Error parsing report: {e}_")
+              cols = ["Sev", "Rule ID", "Location", "Confidence", "CWE", "Issue", "Code Snippet"]
+              section("🔴 High / Critical", b_high,   cols, bandit_row)
+              section("🟡 Medium",          b_medium, cols, bandit_row)
+              section("🔵 Low",             b_low,    cols, bandit_row)
 
           # ── Semgrep ───────────────────────────────────────────────────────
           write("---")
           write("### 🔎 Semgrep — SAST")
-          try:
-              with open("reports/semgrep-report/semgrep-report.json") as f:
-                  data = json.load(f)
-              results = data.get("results", [])
-
-              def sg_sev(r):
-                  return r.get("extra", {}).get("severity", "").upper()
-
-              high   = [r for r in results if sg_sev(r) in ("ERROR", "HIGH", "CRITICAL")]
-              medium = [r for r in results if sg_sev(r) in ("WARNING", "MEDIUM")]
-              low    = [r for r in results if sg_sev(r) in ("INFO", "NOTE", "LOW")]
-
+          if semgrep_err:
+              write(f"_Error: {semgrep_err}_")
+          else:
               write(
-                  f"**{badge(len(high))} High/Critical &nbsp;&nbsp; "
-                  f"{badge(len(medium), 'medium')} Medium &nbsp;&nbsp; "
-                  f"{badge(len(low), 'low')} Low/Info**\n"
+                  f"**{badge(len(sg_high))} High/Critical &nbsp;&nbsp; "
+                  f"{badge(len(sg_medium), 'medium')} Medium &nbsp;&nbsp; "
+                  f"{badge(len(sg_low), 'low')} Low/Info**\n"
               )
 
               def sg_row(r):
-                  sev  = sg_sev(r)
-                  file = r.get("path", "").lstrip("./")
-                  line = r.get("start", {}).get("line", "")
-                  rule = r.get("check_id", "").split(".")[-1][:40]
-                  msg  = r.get("extra", {}).get("message", "").replace("|", "\\|")[:100]
-                  return f"| {sev} | `{file}` | {line} | `{rule}` | {msg} |"
+                  sev   = sg_sev(r)
+                  file  = r.get("path", "").lstrip("./")
+                  start = r.get("start", {})
+                  end   = r.get("end", {})
+                  loc   = f"{file}:{start.get('line','')}"
+                  if end.get("line") and end["line"] != start.get("line"):
+                      loc += f"-{end['line']}"
+                  rule  = r.get("check_id", "")
+                  short = rule.split(".")[-1][:40]
+                  meta  = r.get("extra", {}).get("metadata", {})
+                  cwe   = meta.get("cwe", meta.get("cwe2022-top25", ""))
+                  if isinstance(cwe, list): cwe = cwe[0] if cwe else ""
+                  owasp = meta.get("owasp", "")
+                  if isinstance(owasp, list): owasp = owasp[0] if owasp else ""
+                  msg   = esc(r.get("extra", {}).get("message", ""))[:120]
+                  lines = esc(r.get("extra", {}).get("lines", "")).replace("`","'")[:80]
+                  return f"| {sev} | `{short}` | `{loc}` | {esc(cwe)[:30]} | {esc(owasp)[:30]} | {msg} | `{lines}` |"
 
-              cols = ["Severity", "File", "Line", "Rule", "Message"]
-              section("🔴 High / Critical", high,   cols, sg_row)
-              section("🟡 Medium",          medium, cols, sg_row)
-              section("🔵 Low / Info",      low,    cols, sg_row)
-          except FileNotFoundError:
-              write("_Report not found._")
-          except Exception as e:
-              write(f"_Error parsing report: {e}_")
+              cols = ["Sev", "Rule", "Location", "CWE", "OWASP", "Message", "Code Snippet"]
+              section("🔴 High / Critical", sg_high,   cols, sg_row)
+              section("🟡 Medium",          sg_medium, cols, sg_row)
+              section("🔵 Low / Info",      sg_low,    cols, sg_row)
 
           # ── Gitleaks ──────────────────────────────────────────────────────
           write("---")
           write("### 🔑 Gitleaks — Secrets Detection")
-          try:
-              with open("reports/gitleaks-report/gitleaks-report.json") as f:
-                  content = f.read().strip()
-              leaks = json.loads(content) if content and content != "null" else []
-              leaks = leaks if isinstance(leaks, list) else []
-
-              write(f"**{badge(len(leaks))} Secrets found** _(all secrets are HIGH by default)_\n")
+          if gitleaks_err:
+              write(f"_Error: {gitleaks_err}_")
+          else:
+              write(f"**{badge(len(leaks))} Secrets found** _(all secrets treated as HIGH)_\n")
 
               def leak_row(leak):
-                  rule   = leak.get("RuleID", leak.get("Description", ""))[:40]
+                  rule   = esc(leak.get("RuleID", ""))[:35]
+                  desc   = esc(leak.get("Description", ""))[:50]
                   file   = leak.get("File", "")
                   line   = leak.get("StartLine", "")
                   commit = leak.get("Commit", "")[:8]
-                  author = leak.get("Author", "")
-                  return f"| `{rule}` | `{file}` | {line} | `{commit}` | {author} |"
+                  author = esc(leak.get("Author", ""))
+                  email  = esc(leak.get("Email", ""))
+                  date   = leak.get("Date", "")[:10]
+                  tags   = ", ".join(leak.get("Tags", []))
+                  return f"| `{rule}` | {desc} | `{file}:{line}` | `{commit}` | {author} | {email} | {date} | {tags} |"
 
               section(
                   f"🔴 Secrets ({len(leaks)} found)", leaks,
-                  ["Rule", "File", "Line", "Commit", "Author"],
+                  ["Rule ID", "Description", "Location", "Commit", "Author", "Email", "Date", "Tags"],
                   leak_row,
               )
-          except FileNotFoundError:
-              write("_Report not found._")
-          except Exception as e:
-              write(f"_Error parsing report: {e}_")
+              if not leaks:
+                  write("✅ No secrets detected.")
 
           # ── pip-audit ─────────────────────────────────────────────────────
           write("---")
           write("### 📦 pip-audit — Dependency CVEs")
-          try:
-              with open("reports/pip-audit-report/pip-audit-report.json") as f:
-                  data = json.load(f)
-
-              vulns = []
-              for dep in data.get("dependencies", []):
-                  for v in dep.get("vulns", []):
-                      aliases = v.get("aliases", [])
-                      # Pull CVSS severity from fix_versions or description heuristic
-                      desc = v.get("description", "").upper()
-                      if any(w in desc for w in ("CRITICAL",)):
-                          tier = "high"
-                      elif any(w in desc for w in ("HIGH",)):
-                          tier = "high"
-                      elif any(w in desc for w in ("MEDIUM", "MODERATE")):
-                          tier = "medium"
-                      elif any(w in desc for w in ("LOW",)):
-                          tier = "low"
-                      else:
-                          tier = "medium"  # default unknown to medium
-                      vulns.append({
-                          "package": dep.get("name", ""),
-                          "version": dep.get("version", ""),
-                          "id":      v.get("id", ""),
-                          "aliases": ", ".join(aliases),
-                          "fix":     ", ".join(v.get("fix_versions", [])) or "no fix",
-                          "tier":    tier,
-                      })
-
-              high   = [v for v in vulns if v["tier"] == "high"]
-              medium = [v for v in vulns if v["tier"] == "medium"]
-              low    = [v for v in vulns if v["tier"] == "low"]
-
+          if pip_err:
+              write(f"_Error: {pip_err}_")
+          elif not pip_vulns:
+              write("✅ No vulnerable dependencies found.")
+          else:
               write(
-                  f"**{badge(len(high))} High/Critical &nbsp;&nbsp; "
-                  f"{badge(len(medium), 'medium')} Medium &nbsp;&nbsp; "
-                  f"{badge(len(low), 'low')} Low**\n"
+                  f"**{badge(len(p_high))} High/Critical &nbsp;&nbsp; "
+                  f"{badge(len(p_medium), 'medium')} Medium &nbsp;&nbsp; "
+                  f"{badge(len(p_low), 'low')} Low**\n"
               )
 
               def pip_row(v):
-                  return f"| `{v['package']}` | {v['version']} | `{v['id']}` | {v['aliases']} | {v['fix']} |"
+                  desc = esc(v["desc"])[:140]
+                  return (
+                      f"| `{v['package']}` | {v['version']} | `{v['id']}` "
+                      f"| {v['aliases']} | {v['fix']} | {desc} |"
+                  )
 
-              cols = ["Package", "Version", "ID", "Aliases (CVE)", "Fix Version"]
-              section("🔴 High / Critical", high,   cols, pip_row)
-              section("🟡 Medium",          medium, cols, pip_row)
-              section("🔵 Low",             low,    cols, pip_row)
-
-              if not vulns:
-                  write("✅ No vulnerable dependencies found.")
-          except FileNotFoundError:
-              write("_Report not found._")
-          except Exception as e:
-              write(f"_Error parsing report: {e}_")
+              cols = ["Package", "Version", "GHSA ID", "CVE Aliases", "Fix Version", "Description"]
+              section("🔴 High / Critical", p_high,   cols, pip_row)
+              section("🟡 Medium",          p_medium, cols, pip_row)
+              section("🔵 Low",             p_low,    cols, pip_row)
 
           write("\n---")
-          write("_Full reports available as workflow artifacts._")
+          write("_Full JSON reports available as workflow artifacts._")
           EOF
