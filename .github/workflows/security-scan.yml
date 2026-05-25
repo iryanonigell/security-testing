@@ -253,8 +253,8 @@ jobs:
                   conf  = r.get("issue_confidence", "")
                   cwe   = (r.get("issue_cwe") or {}).get("id", "")
                   cwe_s = f"[CWE-{cwe}](https://cwe.mitre.org/data/definitions/{cwe}.html)" if cwe else ""
-                  msg   = esc(r.get("issue_text", ""))[:120]
-                  code  = esc(r.get("code", "")).replace("`", "'")[:80]
+                  msg   = esc(r.get("issue_text", ""))
+                  code  = esc(r.get("code", "")).replace("`", "'")
                   url   = r.get("more_info", "")
                   rule  = f"[{tid}]({url})" if url else tid
                   return f"| {sev} | {rule} `{tname}` | `{file}:{line}` | {conf} | {cwe_s} | {msg} | `{code}` |"
@@ -298,9 +298,9 @@ jobs:
                   if isinstance(cwe, list): cwe = cwe[0] if cwe else ""
                   owasp = meta.get("owasp", "")
                   if isinstance(owasp, list): owasp = owasp[0] if owasp else ""
-                  msg   = esc(r.get("extra", {}).get("message", ""))[:120]
-                  lines = esc(r.get("extra", {}).get("lines", "")).replace("`","'")[:80]
-                  return f"| {sev} | `{short}` | `{full_rule}` | `{loc}` | {esc(cwe)[:30]} | {esc(owasp)[:30]} | {msg} | `{lines}` |"
+                  msg   = esc((r.get("extra") or {}).get("message", ""))
+                  lines = esc((r.get("extra") or {}).get("lines", "")).replace("`","'")
+                  return f"| {sev} | `{short}` | `{full_rule}` | `{loc}` | {esc(cwe)} | {esc(owasp)} | {msg} | `{lines}` |"
 
               cols = ["Sev", "Rule (short)", "Rule (full)", "Location", "CWE", "OWASP", "Message", "Code Snippet"]
               section("🔴 High / Critical", sg_high,   cols, sg_row)
@@ -316,8 +316,8 @@ jobs:
               write(f"**{badge(len(leaks))} Secrets found** _(all secrets treated as HIGH)_\n")
 
               def leak_row(leak):
-                  rule   = esc(leak.get("RuleID", ""))[:35]
-                  desc   = esc(leak.get("Description", ""))[:50]
+                  rule   = esc(leak.get("RuleID", ""))
+                  desc   = esc(leak.get("Description", ""))
                   file   = leak.get("File", "")
                   line   = leak.get("StartLine", "")
                   commit = leak.get("Commit", "")[:8]
@@ -325,7 +325,7 @@ jobs:
                   email  = esc(leak.get("Email", ""))
                   date   = leak.get("Date", "")[:10]
                   tags   = ", ".join(leak.get("Tags") or [])
-                  msg    = esc(leak.get("Message", ""))[:60]
+                  msg    = esc(leak.get("Message", ""))
                   return f"| `{rule}` | {desc} | `{file}:{line}` | `{commit}` | {author} | {email} | {date} | {tags} | {msg} |"
 
               section(
@@ -351,7 +351,7 @@ jobs:
               )
 
               def pip_row(v):
-                  desc = esc(v["desc"])[:140]
+                  desc = esc(v["desc"])
                   return (
                       f"| `{v['package']}` | {v['version']} | `{v['id']}` "
                       f"| {v['aliases']} | {v['fix']} | {desc} |"
