@@ -5,8 +5,8 @@ DATABASE_URL = "postgresql://admin:SuperSecret123@db.internal:5432/production"
 SECRET_KEY = "hardcoded-flask-secret-key-do-not-use"
 AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
 AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-STRIPE_API_KEY = "sk_live_4eC39HqLyjWDarjtT1zdp7dc"
-GITHUB_TOKEN = "ghp_16C7e42F292c6912E7710c838347Ae5b31"
+STRIPE_API_KEY = "sk_live_FAKE_scanner_test_key_000000"
+GITHUB_TOKEN = "ghp_FAKE_scanner_test_token_000000000"
 
 # Debug mode left on in production — CWE-11
 DEBUG = True

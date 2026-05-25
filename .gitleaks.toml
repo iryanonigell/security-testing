@@ -1,0 +1,17 @@
+# Gitleaks configuration for intentionally vulnerable test repository
+# This allowlist demonstrates how to suppress known false positives in production repos.
+# In a real project you would add actual false positives here, NOT suppress real secrets.
+
+title = "security-testing repo"
+
+[allowlist]
+description = "Intentional test secrets — not real credentials"
+regexTarget = "match"
+regexes = [
+  # AWS official documentation example keys (not real)
+  "AKIAIOSFODNN7EXAMPLE",
+  "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+  # Clearly-fake tokens used for scanner pattern testing
+  "FAKE_scanner_test",
+  "FAKE_scanner",
+]
